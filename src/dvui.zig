@@ -4440,7 +4440,7 @@ pub const DropdownWidget = struct {
             try lw.install();
             try lw.draw();
             lw.deinit();
-            try icon(@src(), "dropdown_triangle", entypo.chevron_small_down, self.options.strip().override(.{ .gravity_y = 0.5, .gravity_x = 1.0 }));
+            _ = try icon(@src(), "dropdown_triangle", entypo.chevron_small_down, self.options.strip().override(.{ .gravity_y = 0.5, .gravity_x = 1.0 }));
 
             hbox.deinit();
         }
@@ -4640,9 +4640,9 @@ pub fn expander(src: std.builtin.SourceLocation, label_str: []const u8, init_opt
     try bcbox.drawBackground();
     const size = try options.fontGet().lineHeight();
     if (expanded) {
-        try icon(@src(), "down_arrow", entypo.triangle_down, .{ .gravity_y = 0.5, .min_size_content = .{ .h = size } });
+        _ = try icon(@src(), "down_arrow", entypo.triangle_down, .{ .gravity_y = 0.5, .min_size_content = .{ .h = size } });
     } else {
-        try icon(@src(), "right_arrow", entypo.triangle_right, .{ .gravity_y = 0.5, .min_size_content = .{ .h = size } });
+        _ = try icon(@src(), "right_arrow", entypo.triangle_right, .{ .gravity_y = 0.5, .min_size_content = .{ .h = size } });
     }
     try labelNoFmt(@src(), label_str, options.strip());
 
@@ -4861,7 +4861,7 @@ pub fn menuItemIcon(src: std.builtin.SourceLocation, name: []const u8, tvg_bytes
         iconopts = iconopts.override(themeGet().style_accent);
     }
 
-    try icon(@src(), name, tvg_bytes, iconopts);
+    _ = try icon(@src(), name, tvg_bytes, iconopts);
 
     mi.deinit();
 
@@ -4998,11 +4998,12 @@ pub fn labelNoFmt(src: std.builtin.SourceLocation, str: []const u8, opts: Option
     lw.deinit();
 }
 
-pub fn icon(src: std.builtin.SourceLocation, name: []const u8, tvg_bytes: []const u8, opts: Options) !void {
+pub fn icon(src: std.builtin.SourceLocation, name: []const u8, tvg_bytes: []const u8, opts: Options) !IconWidget {
     var iw = try IconWidget.init(src, name, tvg_bytes, opts);
     try iw.install();
     try iw.draw();
     iw.deinit();
+    return iw;
 }
 
 pub fn imageSize(name: []const u8, image_bytes: []const u8) !Size {
@@ -5095,7 +5096,7 @@ pub fn buttonIcon(src: std.builtin.SourceLocation, name: []const u8, tvg_bytes: 
 
     // pass min_size_content through to the icon so that it will figure out the
     // min width based on the height
-    try icon(@src(), name, tvg_bytes, opts.strip().override(.{ .gravity_x = 0.5, .gravity_y = 0.5, .min_size_content = opts.min_size_content }));
+    _ = try icon(@src(), name, tvg_bytes, opts.strip().override(.{ .gravity_x = 0.5, .gravity_y = 0.5, .min_size_content = opts.min_size_content }));
 
     const click = bw.clicked();
     try bw.drawFocus();
