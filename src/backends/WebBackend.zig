@@ -46,7 +46,7 @@ pub const wasm = struct {
     pub extern fn wasm_renderGeometry(texture: u32, index_ptr: [*]const u8, index_len: usize, vertex_ptr: [*]const u8, vertex_len: usize, sizeof_vertex: u8, offset_pos: u8, offset_col: u8, offset_uv: u8, x: u16, y: u16, w: u16, h: u16) void;
 
     pub extern fn wasm_cursor(name: [*]const u8, name_len: u32) void;
-    pub extern fn wasm_on_screen_keyboard(x: f32, y: f32, w: f32, h: f32) void;
+    pub extern fn wasm_text_input(x: f32, y: f32, w: f32, h: f32) void;
     pub extern fn wasm_open_url(ptr: [*]const u8, len: usize) void;
     pub extern fn wasm_clipboardTextSet(ptr: [*]const u8, len: usize) void;
 };
@@ -492,17 +492,6 @@ pub fn drawClippedTriangles(_: *WebBackend, texture: ?*anyopaque, vtx: []const d
 pub fn textureCreate(self: *WebBackend, pixels: [*]u8, width: u32, height: u32, interpolation: dvui.enums.TextureInterpolation) *anyopaque {
     _ = self;
 
-    // convert to premultiplied alpha
-    for (0..height) |h| {
-        for (0..width) |w| {
-            const i = (h * width + w) * 4;
-            const a: u16 = pixels[i + 3];
-            pixels[i] = @intCast(@divTrunc(@as(u16, pixels[i]) * a, 255));
-            pixels[i + 1] = @intCast(@divTrunc(@as(u16, pixels[i + 1]) * a, 255));
-            pixels[i + 2] = @intCast(@divTrunc(@as(u16, pixels[i + 2]) * a, 255));
-        }
-    }
-
     const wasm_interp: u8 = switch (interpolation) {
         .nearest => 0,
         .linear => 1,
@@ -512,15 +501,28 @@ pub fn textureCreate(self: *WebBackend, pixels: [*]u8, width: u32, height: u32, 
     return @ptrFromInt(id);
 }
 
+pub fn textureCreateTarget(self: *WebBackend, width: u32, height: u32, interpolation: dvui.enums.TextureInterpolation) !*anyopaque {
+    _ = self;
+    _ = width;
+    _ = height;
+    _ = interpolation;
+    return error.textureError;
+}
+
+pub fn renderTarget(self: *WebBackend, texture: ?*anyopaque) void {
+    _ = self;
+    _ = texture;
+}
+
 pub fn textureDestroy(_: *WebBackend, texture: *anyopaque) void {
     wasm.wasm_textureDestroy(@as(u32, @intFromPtr(texture)));
 }
 
-pub fn setOSKPosition(_: *WebBackend, rect: ?dvui.Rect) void {
-    if (rect) |_| {
-        wasm.wasm_on_screen_keyboard(0, 0, 1, 1);
+pub fn textInputRect(_: *WebBackend, rect: ?dvui.Rect) void {
+    if (rect) |r| {
+        wasm.wasm_text_input(r.x, r.y, r.w, r.h);
     } else {
-        wasm.wasm_on_screen_keyboard(0, 0, 0, 0);
+        wasm.wasm_text_input(0, 0, 0, 0);
     }
 }
 

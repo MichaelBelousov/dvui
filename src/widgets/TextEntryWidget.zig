@@ -20,7 +20,7 @@ pub var defaults: Options = .{
     .margin = Rect.all(4),
     .corner_radius = Rect.all(5),
     .border = Rect.all(1),
-    .padding = Rect.all(4),
+    .padding = Rect.all(6),
     .background = true,
     // min_size_content/max_size_content is calculated in init()
 };
@@ -146,7 +146,7 @@ pub fn install(self: *TextEntryWidget) !void {
 
     self.scrollClip = dvui.clipGet();
 
-    self.textLayout = TextLayoutWidget.init(@src(), .{ .break_lines = self.init_opts.break_lines, .touch_edit_just_focused = false }, self.wd.options.strip().override(.{ .expand = .both, .padding = self.padding }));
+    self.textLayout = TextLayoutWidget.init(@src(), .{ .break_lines = self.init_opts.break_lines, .multiline = self.init_opts.multiline, .touch_edit_just_focused = false }, self.wd.options.strip().override(.{ .expand = .both, .padding = self.padding }));
     try self.textLayout.install(.{ .focused = self.wd.id == dvui.focusedWidgetId(), .show_touch_draggables = (self.len > 0) });
     self.textClip = dvui.clipGet();
 
@@ -213,7 +213,7 @@ pub fn draw(self: *TextEntryWidget) !void {
     const focused = (self.wd.id == dvui.focusedWidgetId());
 
     if (focused) {
-        dvui.wantOnScreenKeyboard(self.wd.borderRectScale().r);
+        dvui.wantTextInput(self.wd.borderRectScale().r);
     }
 
     // set clip back to what textLayout had, so we don't draw over the scrollbars
@@ -539,7 +539,6 @@ pub fn processEvent(self: *TextEntryWidget, e: *Event, bubbling: bool) void {
                 e.handled = true;
                 if (!self.textLayout.selection.empty()) {
                     self.textLayout.selection.moveCursor(self.textLayout.selection.start, false);
-                    self.textLayout.scroll_to_cursor = true;
                 } else {
                     if (self.textLayout.sel_move == .none) {
                         self.textLayout.sel_move = .{ .word_left_right = .{ .select = false } };
@@ -556,7 +555,6 @@ pub fn processEvent(self: *TextEntryWidget, e: *Event, bubbling: bool) void {
                 if (!self.textLayout.selection.empty()) {
                     self.textLayout.selection.moveCursor(self.textLayout.selection.end, false);
                     self.textLayout.selection.affinity = .before;
-                    self.textLayout.scroll_to_cursor = true;
                 } else {
                     if (self.textLayout.sel_move == .none) {
                         self.textLayout.sel_move = .{ .word_left_right = .{ .select = false } };
@@ -572,7 +570,6 @@ pub fn processEvent(self: *TextEntryWidget, e: *Event, bubbling: bool) void {
                 e.handled = true;
                 if (self.textLayout.sel_move == .none) {
                     self.textLayout.sel_move = .{ .char_left_right = .{ .select = false } };
-                    self.textLayout.scroll_to_cursor = true;
                 }
                 if (self.textLayout.sel_move == .char_left_right) {
                     self.textLayout.sel_move.char_left_right.count -= 1;
@@ -584,7 +581,6 @@ pub fn processEvent(self: *TextEntryWidget, e: *Event, bubbling: bool) void {
                 e.handled = true;
                 if (self.textLayout.sel_move == .none) {
                     self.textLayout.sel_move = .{ .char_left_right = .{ .select = false } };
-                    self.textLayout.scroll_to_cursor = true;
                 }
                 if (self.textLayout.sel_move == .char_left_right) {
                     self.textLayout.sel_move.char_left_right.count += 1;
@@ -724,6 +720,7 @@ pub fn processEvent(self: *TextEntryWidget, e: *Event, bubbling: bool) void {
                             std.mem.copyForwards(u8, self.text[sel.cursor..], self.text[sel.cursor + i .. self.len]);
                             self.len -= i;
                             self.text[self.len] = 0;
+                            self.textLayout.scroll_to_cursor = true;
                             self.text_changed = true;
                         }
                     }

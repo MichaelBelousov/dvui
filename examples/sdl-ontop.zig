@@ -1,6 +1,8 @@
 const std = @import("std");
 const dvui = @import("dvui");
-comptime { std.debug.assert(dvui.backend_kind == .sdl); }
+comptime {
+    std.debug.assert(dvui.backend_kind == .sdl);
+}
 const SDLBackend = dvui.backend;
 
 var gpa_instance = std.heap.GeneralPurposeAllocator(.{}){};
@@ -64,23 +66,24 @@ pub fn main() !void {
         _ = c.SDL_RenderClear(renderer);
 
         // draw some SDL stuff with dvui floating stuff in the middle
-        var rect: c.SDL_Rect = .{ .x = 10, .y = 10, .w = 20, .h = 20 };
+        const rect: c.SDL_Rect = .{ .x = 10, .y = 10, .w = 20, .h = 20 };
+        var rect2 = rect;
         _ = c.SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
-        _ = c.SDL_RenderFillRect(renderer, &rect);
+        _ = c.SDL_RenderFillRect(renderer, &rect2);
 
         try dvui_floating_stuff();
 
-        rect.x += 24;
+        rect2.x += 24;
         _ = c.SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
-        _ = c.SDL_RenderFillRect(renderer, &rect);
+        _ = c.SDL_RenderFillRect(renderer, &rect2);
 
-        rect.x += 24;
+        rect2.x += 24;
         _ = c.SDL_SetRenderDrawColor(renderer, 0, 0, 255, 255);
-        _ = c.SDL_RenderFillRect(renderer, &rect);
+        _ = c.SDL_RenderFillRect(renderer, &rect2);
 
         _ = c.SDL_SetRenderDrawColor(renderer, 255, 0, 255, 255);
 
-        _ = c.SDL_RenderDrawLine(renderer, rect.x + 4, rect.y + 30, rect.x + 100, rect.y + 4);
+        _ = c.SDL_RenderDrawLine(renderer, rect.x, rect.y + 30, rect.x + 100, rect.y + 30);
 
         // marks end of dvui frame, don't call dvui functions after this
         // - sends all dvui stuff to backend for rendering, must be called before renderPresent()
@@ -94,7 +97,7 @@ pub fn main() !void {
             // cursor should be handled by application
             backend.setCursor(.bad);
         }
-        backend.setOSKPosition(win.OSKRequested());
+        backend.textInputRect(win.textInputRequested());
 
         // render frame to OS
         backend.renderPresent();
@@ -165,5 +168,6 @@ fn app_init() !void {
         return error.BackendError;
     };
 
-    _ = c.SDL_SetRenderDrawBlendMode(renderer, c.SDL_BLENDMODE_BLEND);
+    const pma_blend = c.SDL_ComposeCustomBlendMode(c.SDL_BLENDFACTOR_ONE, c.SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, c.SDL_BLENDOPERATION_ADD, c.SDL_BLENDFACTOR_ONE, c.SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, c.SDL_BLENDOPERATION_ADD);
+    _ = c.SDL_SetRenderDrawBlendMode(renderer, pma_blend);
 }

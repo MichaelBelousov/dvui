@@ -55,12 +55,10 @@ pub fn init(src: std.builtin.SourceLocation, init_options: InitOptions, opts: Op
             self.rect.h = ms.h;
         }
     } else {
+        if (self.options.expandGet() == .ratio and (ms.w == 0 or ms.h == 0)) {
+            dvui.log.debug("rectFor {x} expand is .ratio but min size is zero\n", .{self.id});
+        }
         self.rect = self.parent.rectFor(self.id, ms, self.options.expandGet(), self.options.gravityGet());
-    }
-
-    var cw = dvui.currentWindow();
-    if (self.id == cw.debug_widget_id) {
-        cw.debug_info_src_id_extra = std.fmt.allocPrint(cw.arena(), "{s}:{d}\nid_extra {d}", .{ src.file, src.line, self.options.idExtra() }) catch "ERROR allocPrint";
     }
 
     return self;
@@ -116,6 +114,8 @@ pub fn register(self: *WidgetData) !void {
             const color = dvui.themeGet().color_err;
             try dvui.pathStrokeAfter(true, true, 1 * rs.s, .none, color);
             dvui.clipSet(clipr);
+
+            cw.debug_info_src_id_extra = std.fmt.allocPrint(cw.arena(), "{s}:{d}\nid_extra {d}", .{ self.src.file, self.src.line, self.options.idExtra() }) catch "ERROR allocPrint";
         }
     }
 }

@@ -24,7 +24,7 @@ pub fn init(src: std.builtin.SourceLocation, name: []const u8, tvg_bytes: []cons
         size.w = @max(size.w, dvui.iconWidth(name, tvg_bytes, size.h) catch size.w);
     } else {
         // user didn't give us one, make it the height of text
-        const h = options.fontGet().lineHeight() catch 10;
+        const h = options.fontGet().textHeight();
         size = Size{ .w = dvui.iconWidth(name, tvg_bytes, h) catch h, .h = h };
     }
 
@@ -43,8 +43,7 @@ pub fn matchEvent(self: *IconWidget, e: *dvui.Event) bool {
 }
 
 pub fn draw(self: *IconWidget) !void {
-    const rect = dvui.placeIn(self.wd.contentRect(), self.wd.options.min_size_contentGet(), .none, self.wd.options.gravityGet());
-    const rs = self.wd.parent.screenRectScale(rect);
+    const rs = self.wd.parent.screenRectScale(self.wd.contentRect());
     try dvui.renderIcon(self.name, self.tvg_bytes, rs, self.wd.options.rotationGet(), self.wd.options.color(.text));
 }
 

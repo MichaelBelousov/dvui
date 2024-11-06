@@ -57,13 +57,6 @@ export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
         return 2;
     };
 
-    // small fonts look bad on the web, so bump the default theme up
-    var theme = win.themes.get("Adwaita Light").?;
-    win.themes.put("Adwaita Light", theme.fontSizeAdd(2)) catch {};
-    theme = win.themes.get("Adwaita Dark").?;
-    win.themes.put("Adwaita Dark", theme.fontSizeAdd(2)) catch {};
-    win.theme = win.themes.get("Adwaita Light").?;
-
     WebBackend.win = &win;
 
     orig_content_scale = win.content_scale;
@@ -111,7 +104,7 @@ fn update() !i32 {
     const end_micros = try win.end(.{});
 
     backend.setCursor(win.cursorRequested());
-    backend.setOSKPosition(win.OSKRequested());
+    backend.textInputRect(win.textInputRequested());
 
     const wait_event_micros = win.waitTime(end_micros, null);
     return @intCast(@divTrunc(wait_event_micros, 1000));
