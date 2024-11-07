@@ -102,7 +102,7 @@ pub fn matchEvent(self: *ScrollContainerWidget, e: *Event) bool {
         self.finger_down = false;
     }
 
-    return dvui.eventMatch(e, .{ .id = self.data().id, .r = self.data().borderRectScale().r });
+    return dvui.eventMatchSimple(e, self.data());
 }
 
 pub fn processEvents(self: *ScrollContainerWidget) void {
@@ -464,10 +464,9 @@ pub fn processMotionScrollEvent(self: *ScrollContainerWidget, e: *dvui.Event, mo
 }
 
 pub fn processEventsAfter(self: *ScrollContainerWidget) void {
-    const rs = self.wd.borderRectScale();
     const evts = dvui.events();
     for (evts) |*e| {
-        if (!dvui.eventMatch(e, .{ .id = self.wd.id, .r = rs.r }))
+        if (!dvui.eventMatchSimple(e, self.data()))
             continue;
 
         switch (e.evt) {
@@ -507,6 +506,7 @@ pub fn processEventsAfter(self: *ScrollContainerWidget) void {
                 } else if (me.action == .release and dvui.captured(self.wd.id)) {
                     e.handled = true;
                     dvui.captureMouse(null);
+                    dvui.dragEnd();
                 } else if (me.action == .motion and me.button.touch()) {
                     // Need to capture here because it's common for the touch
                     // down to happen on top of a different widget.  Example is
