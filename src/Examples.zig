@@ -2023,9 +2023,11 @@ pub fn scrollCanvas() !void {
                             dvui.dragEnd();
                             dvui.refresh(null, @src(), dragBox.data().id);
 
-                            // move box to new home
-                            Data.box_contents[Data.drag_box_window] -= 1;
-                            Data.box_contents[1 - Data.drag_box_window] += 1;
+                            if (Data.drag_box_window != i) {
+                                // move box to new home
+                                Data.box_contents[Data.drag_box_window] -= 1;
+                                Data.box_contents[1 - Data.drag_box_window] += 1;
+                            }
                         } else if (me.action == .position) {
                             e.handled = true;
                             dvui.cursorSet(.crosshair);
@@ -2174,6 +2176,10 @@ pub fn scrollCanvas() !void {
                         dvui.dragEnd();
                     }
                 } else if (me.action == .motion) {
+                    if (me.button.touch() and dragging_box) {
+                        // eat touch motion events so they don't scroll
+                        e.handled = true;
+                    }
                     if (dvui.captured(scroll.scroll.data().id)) {
                         if (dvui.dragging(me.p)) |dps| {
                             e.handled = true;
