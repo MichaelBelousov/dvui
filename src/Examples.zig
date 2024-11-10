@@ -2041,11 +2041,11 @@ pub fn scrollCanvas() !void {
         {
             var hbox = try dvui.box(@src(), .horizontal, .{});
             defer hbox.deinit();
-            if (try dvui.buttonIcon(@src(), "left", entypo.arrow_left, .{}, .{ .min_size_content = .{ .h = 20 } })) {
+            if ((try dvui.buttonIcon(@src(), "left", entypo.arrow_left, .{}, .{ .min_size_content = .{ .h = 20 } })).clicked) {
                 b.x -= 10;
             }
 
-            if (try dvui.buttonIcon(@src(), "right", entypo.arrow_right, .{}, .{ .min_size_content = .{ .h = 20 } })) {
+            if ((try dvui.buttonIcon(@src(), "right", entypo.arrow_right, .{}, .{ .min_size_content = .{ .h = 20 } })).clicked) {
                 b.x += 10;
             }
         }
