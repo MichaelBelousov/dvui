@@ -453,6 +453,7 @@ fn createRasterizerState(self: *Dx11Backend) !void {
     raster_desc.CullMode = dx.D3D11_CULL_BACK;
     raster_desc.FrontCounterClockwise = 1;
     raster_desc.DepthClipEnable = 0;
+    raster_desc.ScissorEnable = 1;
 
     const rasterizer_res = self.device.CreateRasterizerState(&raster_desc, &self.dx_options.rasterizer);
     if (!isOk(rasterizer_res)) {
@@ -545,11 +546,11 @@ fn createSampler(self: *Dx11Backend) !void {
 
     var blend_desc = std.mem.zeroes(dx.D3D11_BLEND_DESC);
     blend_desc.RenderTarget[0].BlendEnable = 1;
-    blend_desc.RenderTarget[0].SrcBlend = dx.D3D11_BLEND_SRC_ALPHA;
+    blend_desc.RenderTarget[0].SrcBlend = dx.D3D11_BLEND_ONE;
     blend_desc.RenderTarget[0].DestBlend = dx.D3D11_BLEND_INV_SRC_ALPHA;
     blend_desc.RenderTarget[0].BlendOp = dx.D3D11_BLEND_OP_ADD;
     blend_desc.RenderTarget[0].SrcBlendAlpha = dx.D3D11_BLEND_ONE;
-    blend_desc.RenderTarget[0].DestBlendAlpha = dx.D3D11_BLEND_ZERO;
+    blend_desc.RenderTarget[0].DestBlendAlpha = dx.D3D11_BLEND_INV_SRC_ALPHA;
     blend_desc.RenderTarget[0].BlendOpAlpha = dx.D3D11_BLEND_OP_ADD;
     blend_desc.RenderTarget[0].RenderTargetWriteMask = @intFromEnum(dx.D3D11_COLOR_WRITE_ENABLE_ALL);
 
@@ -625,10 +626,25 @@ pub fn textureCreate(self: *Dx11Backend, pixels: [*]u8, width: u32, height: u32,
     return texture.?;
 }
 
+pub fn textureCreateTarget(self: *Dx11Backend, width: u32, height: u32, interpolation: dvui.enums.TextureInterpolation) !*anyopaque {
+    _ = self;
+    _ = width;
+    _ = height;
+    _ = interpolation;
+    dvui.log.debug("dx11 textureCreateTarget unimplemented", .{});
+    return error.TextureCreate;
+}
+
 pub fn textureDestroy(self: *Dx11Backend, texture: *anyopaque) void {
     _ = self;
     const tex: *dx.ID3D11Texture2D = @ptrCast(@alignCast(texture));
     _ = tex.IUnknown.Release();
+}
+
+pub fn renderTarget(self: *Dx11Backend, texture: ?*anyopaque) void {
+    _ = self;
+    _ = texture;
+    dvui.log.debug("dx11 renderTarget unimplemented", .{});
 }
 
 pub fn drawClippedTriangles(
@@ -709,10 +725,10 @@ pub fn drawClippedTriangles(
 
     if (clipr) |cr| {
         const new_clip: RECT = .{
-            .left = @intFromFloat(@round(cr.x)),
-            .top = @intFromFloat(@round(cr.y)),
-            .right = @intFromFloat(@round(cr.w)),
-            .bottom = @intFromFloat(@round(cr.h)),
+            .left = @intFromFloat(cr.x),
+            .top = @intFromFloat(cr.y),
+            .right = @intFromFloat(@ceil(cr.x + cr.w)),
+            .bottom = @intFromFloat(@ceil(cr.y + cr.h)),
         };
         self.device_context.RSSetScissorRects(nums, @ptrCast(&new_clip));
     } else {
@@ -735,6 +751,16 @@ pub fn drawClippedTriangles(
 
 pub fn begin(self: *Dx11Backend, arena: std.mem.Allocator) void {
     self.arena = arena;
+
+    const pixel_size = self.pixelSize();
+    var scissor_rect: RECT = .{
+        .left = 0,
+        .top = 0,
+        .right = @intFromFloat(@round(pixel_size.w)),
+        .bottom = @intFromFloat(@round(pixel_size.h)),
+    };
+    self.device_context.RSSetScissorRects(1, @ptrCast(&scissor_rect));
+
     var clear_color = [_]f32{ 1.0, 1.0, 1.0, 0.0 };
     self.device_context.ClearRenderTargetView(self.render_target orelse return, @ptrCast((&clear_color).ptr));
 }
@@ -1046,6 +1072,15 @@ pub fn wndProc(hwnd: HWND, umsg: UINT, wparam: w.WPARAM, lparam: w.LPARAM) callc
                 }) catch {};
             }
         },
+        ui.WM_CHAR => {
+            if (wind) |window| {
+                const ascii_char: u8 = @truncate(wparam);
+                if (std.ascii.isPrint(ascii_char)) {
+                    const string: []const u8 = &.{ascii_char};
+                    _ = window.addEventText(string) catch {};
+                }
+            }
+        },
         else => {},
     }
 
@@ -1273,7 +1308,7 @@ fn convertVKeyToDvuiKey(vkey: key.VIRTUAL_KEY) dvui.enums.Key {
         .Z => K.z,
         .BACK => K.backspace,
         .TAB => K.tab,
-        .RETURN => K.kp_enter,
+        .RETURN => K.enter,
         .F1 => K.f1,
         .F2 => K.f2,
         .F3 => K.f3,
