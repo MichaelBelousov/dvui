@@ -12,6 +12,9 @@ update web-test and publish
 redo screenshot
 
 
+menus don't show on top of other subwindows
+
+
 tooltips
 
 
@@ -82,9 +85,6 @@ should do tabIndexSet if the element has size, so even if it's scrolled off the 
 
 Is there a way to turn off tab indexing for stuff inside DemoButton?
 - also turn off focus?
-
-add animating example of a dialog that opens down and closes up
-- replace the Scale one
 
 
 does it help web-test size to leave out some fonts and icons?
