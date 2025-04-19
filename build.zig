@@ -233,10 +233,7 @@ pub fn build(b: *std.Build) !void {
     if (back_to_build == null or back_to_build == .web) {
         const web_dvui_opts = DvuiModuleOptions{
             .b = b,
-            .target = b.resolveTargetQuery(.{
-                .cpu_arch = .wasm32,
-                .os_tag = .freestanding,
-            }),
+            .target = target,
             .optimize = optimize,
             .check_step = check_step,
         };
