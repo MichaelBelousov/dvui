@@ -228,6 +228,8 @@ pub const Branch = struct {
 
     pub fn wrapOuter(opts: Options) Options {
         var ret = opts;
+        // tag the focusable button (wrapInner) rather than registering it twice
+        ret.tag = null;
         ret.tab_index = null;
         ret.border = Rect{};
         ret.padding = Rect{};
