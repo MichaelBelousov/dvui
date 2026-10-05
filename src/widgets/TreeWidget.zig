@@ -26,6 +26,12 @@ pub const InitOptions = struct {
 
     /// If not null, drags give up mouse capture and set this drag name
     drag_name: ?[]const u8 = null,
+
+    /// If true, wrap in a focus group where up/down move focus between
+    /// branches.  If false, there is no focus group so arrow keys move focus
+    /// directionally (tabIndexDirection) along with surrounding widgets, which
+    /// is useful for trees inside popups or with wrapping content.
+    focus_group: bool = true,
 };
 
 pub fn init(self: *TreeWidget, src: std.builtin.SourceLocation, init_opts: InitOptions, opts: Options) void {
@@ -47,9 +53,10 @@ pub fn init(self: *TreeWidget, src: std.builtin.SourceLocation, init_opts: InitO
 
     dvui.parentSet(self.widget());
 
-    self.group.init(@src(), .{ .nav_key_dir = .vertical }, .{});
+    if (init_opts.focus_group) self.group.init(@src(), .{ .nav_key_dir = .vertical }, .{});
 
-    if (self.group.data().accesskit_node()) |ak_node| {
+    const ak_wd = if (init_opts.focus_group) self.group.data() else self.data();
+    if (ak_wd.accesskit_node()) |ak_node| {
         AccessKit.nodeAddAction(ak_node, AccessKit.Action.focus);
         AccessKit.nodeAddAction(ak_node, AccessKit.Action.click);
     }
@@ -137,7 +144,7 @@ pub fn deinit(self: *TreeWidget) void {
     defer if (dvui.widgetIsAllocated(self)) dvui.widgetFree(self);
     defer self.* = undefined;
 
-    self.group.deinit();
+    if (self.init_options.focus_group) self.group.deinit();
 
     if (self.drag_ending) {
         self.id_branch = null;
@@ -362,20 +369,25 @@ pub const Branch = struct {
 
                     switch (ke.code) {
                         .right => {
-                            e.handle(@src(), self.button.data());
                             if (self.expanded) {
+                                // without a focus group, let tabIndexDirection move focus
+                                if (!self.tree.init_options.focus_group) continue;
+                                e.handle(@src(), self.button.data());
                                 self.tree.group.focusNext(e.num);
                             } else {
+                                e.handle(@src(), self.button.data());
                                 self.expanded = true;
                             }
                         },
                         .left => {
-                            e.handle(@src(), self.button.data());
                             if (self.expanded) {
+                                e.handle(@src(), self.button.data());
                                 self.expanded = false;
                             } else if (self.parent_focus_id) |pid| {
+                                e.handle(@src(), self.button.data());
                                 dvui.focusWidget(pid, null, e.num);
-                            } else {
+                            } else if (self.tree.init_options.focus_group) {
+                                e.handle(@src(), self.button.data());
                                 // no parent, so focus the first branch of the tree
                                 while (dvui.focusedWidgetId() != null) {
                                     self.tree.group.focusPrev(e.num);
