@@ -447,7 +447,7 @@ pub fn processScrollTo(
     // grid (has internal scroll area) inside larger page scroll area.  The
     // grid's scroll area isn't doing anything, but grid cells can be
     // scrolled into view on the page.
-    const propagate = rs.r.intersect(st.screen_rect).equals(st.screen_rect);
+    const propagate = rs.r.contains(st.screen_rect.topLeft()) and rs.r.contains(st.screen_rect.bottomRight());
 
     if (self.si.vertical != .none) {
         const ypx = rs.r.y - st.screen_rect.y; // how far to the top
