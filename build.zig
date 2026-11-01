@@ -308,9 +308,13 @@ pub fn build(b: *std.Build) !void {
         accesskit,
     );
 
+    const hot_reload = b.option(bool, "hot-reload", "Support swapping app code at runtime, see addReloadableAppStep (default: true in debug builds)") orelse (optimize == .debug);
+    build_options.addOption(bool, "hot_reload", hot_reload);
+
     var dvui_opts = DvuiModuleOptions{
         .b = b,
         .target = target,
+        .hot_reload = hot_reload,
         .optimize = optimize,
         .test_step = test_step,
         .test_filters = test_filters,
@@ -473,6 +477,7 @@ pub fn buildBackend(
             // const vk_renderer_mod = dvui_dep.module("dvui_vulkan_renderer"); // with .render_backend = .vulkan
             // @import("dvui").linkBackend(dvui_mod, your_backend_module);
             const dvui_mod = addDvuiModule("dvui", dvui_opts);
+            addReloadClient("dvui", dvui_opts);
             if (expose_vulkan_renderer) _ = addVulkanRendererModule("dvui_vulkan_renderer", dvui_mod, dvui_opts);
             // does not need to be tested as only dependent would hit this path and test themselves
         },
@@ -609,6 +614,8 @@ pub fn buildBackend(
             }
 
             const dvui_sdl = addDvuiModule("dvui_sdl2", dvui_opts);
+
+            addReloadClient("dvui_sdl2", dvui_opts);
             dvui_opts.addChecks(dvui_sdl, "dvui_sdl2");
             if (test_dvui_and_app) {
                 dvui_opts.addTests(dvui_sdl, "dvui_sdl2");
@@ -658,6 +665,8 @@ pub fn buildBackend(
             linkSdl3(sdl_mod, &sdl_translate_c, sdl3_options, dvui_opts_in);
 
             const dvui_sdl = addDvuiModule("dvui_sdl3gpu", dvui_opts);
+
+            addReloadClient("dvui_sdl3gpu", dvui_opts);
             // dvui_opts.addChecks(dvui_sdl, "dvui_sdl3gpu");
             // if (test_dvui_and_app) {
             // dvui_opts.addTests(dvui_sdl, "dvui_sdl3gpu");
@@ -766,6 +775,8 @@ pub fn buildBackend(
             linkSdl3(sdl_mod, &sdl_translate_c, sdl3_options, dvui_opts);
 
             const dvui_sdl = addDvuiModule("dvui_sdl3", dvui_opts);
+
+            addReloadClient("dvui_sdl3", dvui_opts);
             if (target.result.abi.isAndroid()) {
                 addAndroidLibC(dvui_sdl, dvui_opts);
             } else {
@@ -784,7 +795,9 @@ pub fn buildBackend(
                 };
                 _ = addExample("sdl3-standalone", b.path("examples/sdl-standalone.zig"), true, example_opts, dvui_opts);
                 _ = addExample("sdl3-ontop", b.path("examples/sdl-ontop.zig"), true, example_opts, dvui_opts);
-                _ = addExample("sdl3-app", b.path("examples/app.zig"), test_dvui_and_app, example_opts, dvui_opts);
+                const app_mod = addExample("sdl3-app", b.path("examples/app.zig"), test_dvui_and_app, example_opts, dvui_opts);
+                const reloadable = addReloadableApp(b, b, .{ .name = "sdl3-hot-app", .root_module = app_mod, .use_llvm = dvui_opts.use_llvm, .use_lld = dvui_opts.use_lld });
+                if (dvui_opts.check_step) |step| if (reloadable.lib) |lib| step.dependOn(&lib.step);
                 _ = addExample("sdl3-multi-win", b.path("examples/sdl-multi-win.zig"), true, example_opts, dvui_opts);
                 _ = addExample("sdl3-docking", b.path("examples/docking-standalone.zig"), true, example_opts, dvui_opts);
             }
@@ -836,6 +849,8 @@ pub fn buildBackend(
             }
 
             const dvui_raylib = addDvuiModule("dvui_raylib", dvui_opts);
+
+            addReloadClient("dvui_raylib", dvui_opts);
             dvui_opts.addChecks(dvui_raylib, "dvui_raylib");
             if (test_dvui_and_app) {
                 dvui_opts.addTests(dvui_raylib, "dvui_raylib");
@@ -895,6 +910,8 @@ pub fn buildBackend(
             }
 
             const dvui_raylib = addDvuiModule("dvui_raylib_zig", dvui_opts);
+
+            addReloadClient("dvui_raylib_zig", dvui_opts);
             dvui_opts.addChecks(dvui_raylib, "dvui_raylib_zig");
             if (test_dvui_and_app) {
                 dvui_opts.addTests(dvui_raylib, "dvui_raylib_zig");
@@ -933,6 +950,8 @@ pub fn buildBackend(
                 }
 
                 const dvui_dx11 = addDvuiModule("dvui_dx11", dvui_opts);
+
+                addReloadClient("dvui_dx11", dvui_opts);
                 dvui_opts.addChecks(dvui_dx11, "dvui_dx11");
                 if (test_dvui_and_app) {
                     dvui_opts.addTests(dvui_dx11, "dvui_dx11");
@@ -979,6 +998,8 @@ pub fn buildBackend(
             }
 
             const dvui_glfw = addDvuiModule("dvui_glfw", dvui_opts);
+
+            addReloadClient("dvui_glfw", dvui_opts);
             linkBackend(dvui_glfw, glfw_mod);
 
             const example_opts: ExampleOptions = .{
@@ -1118,6 +1139,8 @@ pub fn buildBackend(
             }
 
             const dvui_wio = addDvuiModule("dvui_wio", dvui_opts);
+
+            addReloadClient("dvui_wio", dvui_opts);
             dvui_opts.addChecks(dvui_wio, "dvui_wio");
             if (test_dvui_and_app) {
                 dvui_opts.addTests(dvui_wio, "dvui_wio");
@@ -1164,6 +1187,8 @@ pub fn buildBackend(
             }
 
             const dvui_pugl = addDvuiModule("dvui_pugl", dvui_opts);
+
+            addReloadClient("dvui_pugl", dvui_opts);
             dvui_opts.addChecks(dvui_pugl, "dvui_pugl");
             if (test_dvui_and_app)
                 dvui_opts.addTests(dvui_pugl, "dvui_pugl");
@@ -1200,6 +1225,7 @@ const DvuiModuleOptions = struct {
     build_options: *std.Build.Step.Options,
     render_backend: RenderBackend,
     vertex_index: VertexIndex,
+    hot_reload: bool = false,
     libc: ?bool,
     tiny_file_dialogs: ?bool,
     freetype: ?bool,
@@ -1354,6 +1380,8 @@ pub fn addDvuiModule(
         // NOTE: see sdl3_sanitize_c in linkSdl3 -- same ubsan-runtime-not-bundled issue for
         // the C sources this module compiles directly (e.g. vendor/stb/*.c below).
         .sanitize_c = if (target.result.os.tag == .ios) .off else null,
+        // can end up in the shared library, see addReloadClient
+        .pic = if (opts.hot_reload) true else null,
         .imports = &.{
             .{
                 .name = "dvui-c",
@@ -1479,6 +1507,7 @@ pub fn addDvuiModule(
             });
             if (freetype_dep) |fd| {
                 dvui_translate_c.addIncludePath(fd.path("include"));
+                if (opts.hot_reload) fd.artifact("freetype").root_module.pic = true;
                 dvui_mod.linkLibrary(fd.artifact("freetype"));
             }
         }
@@ -1508,6 +1537,7 @@ pub fn addDvuiModule(
         if (tree_sitter_dep) |tsd| {
             dvui_translate_c.defineCMacro("DVUI_USE_TREESITTER", "1");
             dvui_translate_c.addIncludePath(tsd.path("lib/include"));
+            if (opts.hot_reload) tsd.artifact("tree-sitter").root_module.pic = true;
             dvui_mod.linkLibrary(tsd.artifact("tree-sitter"));
         }
 
@@ -1560,6 +1590,199 @@ fn addVulkanRendererModule(
     const vulkan = b.lazyDependency("vulkan", .{ .registry = registry }) orelse return renderer_mod;
     renderer_mod.addImport("vk", vulkan.module("vulkan-zig"));
     return renderer_mod;
+}
+
+/// Adds `<name>_reload`, a variant of the dvui module `name` for code that runs
+/// in a shared library: it has the same build options, but talks to the host's
+/// real backend through the proxy backend, so it doesn't link a second copy of
+/// the windowing and graphics libraries.
+fn addReloadClient(comptime name: []const u8, opts_in: DvuiModuleOptions) void {
+    if (!opts_in.hot_reload) return;
+    const os = opts_in.target.result.os.tag;
+    if (opts_in.target.result.cpu.arch.isWasm() or opts_in.target.result.abi.isAndroid() or os == .ios or os == .freestanding) return;
+    // accesskit needs the real window handle
+    if (opts_in.accesskit.enabled()) return;
+
+    var opts = opts_in;
+    const b = opts.b;
+    opts.render_backend = .default;
+    opts.wio_module = null;
+
+    const bridge_mod = b.addModule(name ++ "_reload_bridge", .{
+        .root_source_file = b.path("src/backends/proxy_bridge.zig"),
+        .target = opts.target,
+        .optimize = opts.optimize,
+        .pic = true,
+    });
+    const proxy_mod = b.addModule(name ++ "_reload_backend", .{
+        .root_source_file = b.path("src/backends/proxy.zig"),
+        .target = opts.target,
+        .optimize = opts.optimize,
+        .pic = true,
+    });
+    proxy_mod.addImport("proxy_bridge", bridge_mod);
+
+    const client_mod = addDvuiModule(name ++ "_reload", opts);
+    bridge_mod.addImport("dvui", client_mod);
+    linkBackend(client_mod, proxy_mod);
+}
+
+pub const ReloadableAppOptions = struct {
+    /// Name of the executable, and of the steps that build it.
+    name: []const u8,
+    /// Root module of a `dvui.App` that imports a dvui module as "dvui", for
+    /// example `dvui_dep.module("dvui_sdl3")`.
+    root_module: *std.Build.Module,
+    use_llvm: ?bool = null,
+    use_lld: ?bool = null,
+};
+
+pub const ReloadableApp = struct {
+    /// With hot reloading this is the host program, otherwise the app itself.
+    exe: *Compile,
+    /// The app's code. null when dvui was built without hot reloading.
+    lib: ?*Compile,
+    run: *std.Build.Step.Run,
+    /// `zig build <name>`: build everything and run the app.
+    run_step: *std.Build.Step,
+    /// `zig build <name>-reload`: rebuild the app's code, which a running host
+    /// picks up. Use with `--watch` to reload on save.
+    reload_step: *std.Build.Step,
+};
+
+/// Build a `dvui.App` so its code can be swapped while it runs.
+///
+/// Wraps `root_module` in a shared library that exports a C ABI (`dvui_frame`
+/// and friends, see src/hot_reload/client_root.zig), and adds a host program
+/// that owns the window and loads the library. When the installed library
+/// changes the host loads the new one, and everything stored with
+/// `dvui.dataSet` and friends carries over, see src/hot_reload/wire.zig.
+///
+/// Example build.zig:
+///
+/// ```zig
+/// const dvui_dep = b.dependency("dvui", .{ .target = target, .optimize = optimize, .backend = .sdl3 });
+/// const app_mod = b.createModule(.{ .root_source_file = b.path("src/main.zig"), .target = target, .optimize = optimize });
+/// app_mod.addImport("dvui", dvui_dep.module("dvui_sdl3"));
+/// _ = @import("dvui").addReloadableAppStep(b, dvui_dep, .{ .name = "my-app", .root_module = app_mod });
+/// ```
+///
+/// Then run `zig build my-app`, and in another terminal `zig build my-app-reload --watch`.
+///
+/// Without hot reloading (`-Dhot-reload=false`, the default outside of debug
+/// builds) this builds `root_module` as a normal executable.
+pub fn addReloadableAppStep(b: *std.Build, dvui_dep: *std.Build.Dependency, opts: ReloadableAppOptions) ReloadableApp {
+    return addReloadableApp(b, dvui_dep.builder, opts);
+}
+
+fn addReloadableApp(b: *std.Build, dvui_b: *std.Build, opts: ReloadableAppOptions) ReloadableApp {
+    const app = opts.root_module;
+    const host_dvui = app.import_table.get("dvui") orelse @panic("addReloadableAppStep: root_module needs to import dvui as \"dvui\"");
+
+    const client_dvui: ?*std.Build.Module = for (dvui_b.modules.keys(), dvui_b.modules.values()) |name, mod| {
+        if (mod == host_dvui) break dvui_b.modules.get(b.fmt("{s}_reload", .{name}));
+    } else null;
+
+    const reload_step = b.step(b.fmt("{s}-reload", .{opts.name}), b.fmt("Rebuild the code of {s}, which a running host picks up", .{opts.name}));
+    const run_step = b.step(opts.name, b.fmt("Run {s}", .{opts.name}));
+
+    const client = client_dvui orelse {
+        const exe = b.addExecutable(.{ .name = opts.name, .root_module = app, .use_llvm = opts.use_llvm, .use_lld = opts.use_lld });
+        reload_step.dependOn(&b.addInstallArtifact(exe, .{}).step);
+        const run = b.addRunArtifact(exe);
+        run.addPassthruArgs();
+        run_step.dependOn(&run.step);
+        return .{ .exe = exe, .lib = null, .run = run, .run_step = run_step, .reload_step = reload_step };
+    };
+
+    const target = app.resolved_target orelse @panic("addReloadableAppStep: root_module needs a target");
+    const optimize = app.optimize orelse @panic("addReloadableAppStep: root_module needs an optimize mode");
+    const host_backend = host_dvui.import_table.get("backend") orelse @panic("addReloadableAppStep: dvui has no backend, see linkBackend");
+    const client_backend = client.import_table.get("backend").?;
+    const is_windows = target.result.os.tag == .windows;
+
+    var retargeted: std.AutoHashMapUnmanaged(*std.Build.Module, *std.Build.Module) = .empty;
+    retargeted.put(b.allocator, host_dvui, client) catch @panic("OOM");
+    retargeted.put(b.allocator, host_backend, client_backend) catch @panic("OOM");
+
+    const lib = b.addLibrary(.{
+        .name = b.fmt("{s}-reload", .{opts.name}),
+        .linkage = .dynamic,
+        .root_module = b.createModule(.{
+            .root_source_file = dvui_b.path("src/hot_reload/client_root.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = !is_windows,
+            .pic = true,
+            .imports = &.{
+                .{ .name = "dvui", .module = client },
+                .{ .name = "app", .module = retargetModule(b, app, &retargeted) },
+                .{ .name = "proxy_bridge", .module = client_backend.import_table.get("proxy_bridge").? },
+            },
+        }),
+        .use_llvm = opts.use_llvm,
+        .use_lld = opts.use_lld,
+    });
+    const install_lib = b.addInstallArtifact(lib, .{ .dest_dir = .{ .override = .bin } });
+    reload_step.dependOn(&install_lib.step);
+
+    const host_options = b.addOptions();
+    host_options.addOption([]const u8, "lib_file", lib.out_filename);
+
+    const exe = b.addExecutable(.{
+        .name = opts.name,
+        .root_module = b.createModule(.{
+            .root_source_file = dvui_b.path("src/hot_reload/host_root.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = !is_windows,
+            .imports = &.{
+                .{ .name = "dvui", .module = host_dvui },
+                .{ .name = "hot_reload_options", .module = host_options.createModule() },
+                .{ .name = "proxy_bridge", .module = b.createModule(.{
+                    .root_source_file = dvui_b.path("src/backends/proxy_bridge.zig"),
+                    .target = target,
+                    .optimize = optimize,
+                    .imports = &.{.{ .name = "dvui", .module = host_dvui }},
+                }) },
+            },
+        }),
+        .use_llvm = opts.use_llvm,
+        .use_lld = opts.use_lld,
+    });
+    const install_exe = b.addInstallArtifact(exe, .{});
+
+    // The host finds the library next to itself, so run the installed executable
+    // rather than the one in the cache.
+    const run = std.Build.Step.Run.create(b, b.fmt("run {s}", .{opts.name}));
+    run.addFileArg(.{ .relative = .{ .base = .install_prefix, .sub_path = b.pathJoin(&.{ "bin", exe.out_filename }) } });
+    run.step.dependOn(&install_lib.step);
+    run.step.dependOn(&install_exe.step);
+    run.addPassthruArgs();
+    run_step.dependOn(&run.step);
+
+    return .{ .exe = exe, .lib = lib, .run = run, .run_step = run_step, .reload_step = reload_step };
+}
+
+/// Shallow copy of `mod` and the modules it imports, that imports the modules
+/// in `retargeted` in place of their keys.
+fn retargetModule(
+    b: *std.Build,
+    mod: *std.Build.Module,
+    retargeted: *std.AutoHashMapUnmanaged(*std.Build.Module, *std.Build.Module),
+) *std.Build.Module {
+    if (retargeted.get(mod)) |existing| return existing;
+
+    const copy = b.allocator.create(std.Build.Module) catch @panic("OOM");
+    copy.* = mod.*;
+    copy.cached_graph = .{ .modules = &.{}, .names = &.{} };
+    copy.pic = true;
+    copy.import_table = mod.import_table.clone(b.allocator) catch @panic("OOM");
+    retargeted.put(b.allocator, mod, copy) catch @panic("OOM");
+    for (copy.import_table.values()) |*import| {
+        import.* = retargetModule(b, import.*, retargeted);
+    }
+    return copy;
 }
 
 const ExampleOptions = struct {

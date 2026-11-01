@@ -231,6 +231,36 @@ Further reading:
 - Using a version of `raylib-zig` that's not bundled with DVUI:
   - [`readme-raylib-zig-custom.md`](readme-raylib-zig-custom.md)
 
+### Hot Reloading
+
+A `dvui.App` can have its code swapped while it runs. In your `build.zig`:
+
+```zig
+const dvui_dep = b.dependency("dvui", .{ .target = target, .optimize = optimize, .backend = .sdl3 });
+const app_mod = b.createModule(.{ .root_source_file = b.path("src/main.zig"), .target = target, .optimize = optimize });
+app_mod.addImport("dvui", dvui_dep.module("dvui_sdl3"));
+_ = @import("dvui").addReloadableAppStep(b, dvui_dep, .{ .name = "my-app", .root_module = app_mod });
+```
+
+Then run `zig build my-app`, and in another terminal `zig build my-app-reload --watch`. Don't pass `--watch` to `my-app` itself: it can't rebuild anything until the app exits. In this repo, try `zig build sdl3-hot-app -Dbackend=sdl3` and `zig build sdl3-hot-app-reload -Dbackend=sdl3 --watch`.
+
+This is controlled by `-Dhot-reload`, which defaults to true in debug builds. When it is off, the same step builds a normal executable.
+
+What carries over a reload:
+- Everything stored with `dvui.dataSet` and friends, which includes the state of dvui's own widgets. It is converted through ZON, so stored structs can change: removed fields are dropped, new fields and fields with a changed type become the natural zero value for their type (not the field's default). Slices become empty.
+- Pointers keep their address. A new or retyped pointer that can't be null has no zero value and panics. Changing the layout of what a stored pointer points to is not detected.
+- If the stored type is replaced by an unrelated one (`u32` to a struct), the value is treated as missing.
+
+What doesn't:
+- Global and container level `var`s in your code start over from their initial values. Keep state you want to survive in `dvui.dataSet`.
+- Ids include the line and column of `@src()`, so moving a widget in its file loses that widget's stored data, and that of its children.
+- `initFn` only runs for the first library, and `deinitFn` runs from the last one.
+
+Limitations:
+- Editing dvui itself or changing build options needs a restart of the host, which detects most such mismatches when loading a library.
+- App code sees `dvui.backend.kind == .proxy`, so backend specific code doesn't apply, and it can't open extra OS windows (`dvui.osWindow` falls back to a floating window). Not available with AccessKit.
+- Replaced libraries stay mapped until exit since dvui can hold on to their code and constants, so memory use grows with each reload.
+
 ### Troubleshooting Raylib
 - If you encounter error `No Wayland`, then also add flag `-Dlinux_display_backend=X11`
 

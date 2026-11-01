@@ -136,7 +136,7 @@ pub fn content() ?dvui.App.Result {
         \\
         \\
     , .{});
-    tl2.addText("Framerate is variable and adjusts as needed for input events and animations.\n\n", .{});
+    tl2.addText("Framerate is YY and adjusts as needed for input events and animations.\n\n", .{});
     tl2.addText("Framerate is capped by vsync.\n\n", .{});
     tl2.addText("Cursor is always being set by dvui.\n\n", .{});
     if (dvui.useFreeType) {

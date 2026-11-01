@@ -107,6 +107,15 @@ pub const RenderBridge = extern struct {
     /// forwards here because the proxy backend itself has no real event loop of its own to
     /// wake — the host's backend is the one that actually needs the nudge.
     refresh: *const fn (ctx: ?*anyopaque) callconv(.c) void,
+
+    /// `Backend.nanoTime`. If null the proxy backend uses a fake clock.
+    nano_time: ?*const fn (ctx: ?*anyopaque) callconv(.c) i64 = null,
+    /// `Backend.realTime`. If null the proxy backend uses a fake clock.
+    real_time: ?*const fn (ctx: ?*anyopaque) callconv(.c) i64 = null,
+    /// `Backend.title`, `new_title` is not null terminated.
+    title: ?*const fn (ctx: ?*anyopaque, new_title: [*]const u8, new_title_len: usize) callconv(.c) void = null,
+    /// `Backend.windowStateSet`; `state` is `@backingInt(dvui.enums.WindowState)`.
+    window_state_set: ?*const fn (ctx: ?*anyopaque, state: u8) callconv(.c) void = null,
 };
 
 /// Set by the host when a plugin dylib is loaded.

@@ -36,11 +36,13 @@ fn bridgeCtx(b: *const proxy_bridge.RenderBridge) ?*anyopaque {
 
 /// Get monotonic nanosecond timestamp. Doesn't have to be system time.
 pub fn nanoTime(_: *ProxyBackend) i128 {
+    if (proxy_bridge.bridge) |b| if (b.nano_time) |f| return f(bridgeCtx(b));
     defer clock_time += 1 * std.time.ns_per_ms;
     return clock_time;
 }
 
 pub fn realTime(_: *ProxyBackend) i128 {
+    if (proxy_bridge.bridge) |b| if (b.real_time) |f| return f(bridgeCtx(b));
     // should this do something different than nanoTime?
     defer clock_time += 1 * std.time.ns_per_ms;
     return clock_time;
@@ -194,11 +196,21 @@ pub fn textInputRect(_: *ProxyBackend, rect: ?dvui.Rect.Natural) void {
 
 pub fn renderPresent(_: *ProxyBackend) void {}
 
-pub fn clipboardText(self: *ProxyBackend) ![]const u8 {
+pub fn title(_: *ProxyBackend, _: *dvui.Window, new_title: []const u8) void {
+    const b = bridgeGeneric() catch return;
+    if (b.title) |f| f(bridgeCtx(b), new_title.ptr, new_title.len);
+}
+
+pub fn windowStateSet(_: *ProxyBackend, _: *dvui.Window, state: dvui.enums.WindowState) void {
+    const b = bridgeGeneric() catch return;
+    if (b.window_state_set) |f| f(bridgeCtx(b), @backingInt(state));
+}
+
+pub fn clipboardText(_: *ProxyBackend) ![]const u8 {
     const b = try bridgeGeneric();
     const slice = b.clipboard_text(bridgeCtx(b));
     if (slice.len == 0) return "";
-    return try self.arena.dupe(u8, slice.ptr[0..slice.len]);
+    return try dvui.currentWindow().arena().dupe(u8, slice.ptr[0..slice.len]);
 }
 
 pub fn clipboardTextSet(_: *ProxyBackend, text: []const u8) !void {

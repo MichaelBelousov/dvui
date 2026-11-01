@@ -311,6 +311,7 @@ pub const PlaceOnScreenAvoid = layout.PlaceOnScreenAvoid;
 pub const placeOnScreen = layout.placeOnScreen;
 
 pub const Data = @import("Data.zig");
+pub const hot_reload = @import("hot_reload.zig");
 
 pub const native_dialogs = @import("native_dialogs.zig");
 pub const dialogWasmFileOpen = native_dialogs.Wasm.open;
@@ -384,8 +385,14 @@ pub const Id = enum(u64) {
         if (start) |s| {
             hash.value = s.asU64();
         }
-        hash.update(std.mem.asBytes(&src.module.ptr));
-        hash.update(std.mem.asBytes(&src.file.ptr));
+        if (hot_reload.enabled) {
+            // these pointers change every time the code is reloaded
+            hash.update(src.module);
+            hash.update(src.file);
+        } else {
+            hash.update(std.mem.asBytes(&src.module.ptr));
+            hash.update(std.mem.asBytes(&src.file.ptr));
+        }
         hash.update(std.mem.asBytes(&src.line));
         hash.update(std.mem.asBytes(&src.column));
         hash.update(std.mem.asBytes(&id_extra));
@@ -1347,22 +1354,22 @@ pub const data = struct {
 
     pub fn get(win: ?*Window, key: Key, comptime T: type) ?T {
         const w = currentOverrideOrPanic(win);
-        return if (w.data_store.getPtr(key, T)) |v| v.* else null;
+        return if (w.data_store.getPtr(w.gpa, key, T)) |v| v.* else null;
     }
 
     pub fn getPtr(win: ?*Window, key: Key, comptime T: type) ?*T {
         const w = currentOverrideOrPanic(win);
-        return w.data_store.getPtr(key, T);
+        return w.data_store.getPtr(w.gpa, key, T);
     }
 
     pub fn getSlice(win: ?*Window, key: Key, comptime T: type) ?T {
         const w = currentOverrideOrPanic(win);
-        return w.data_store.getSlice(key, T);
+        return w.data_store.getSlice(w.gpa, key, T);
     }
 
     pub fn getDefault(win: ?*Window, key: Key, comptime T: type, default: T) T {
         const w = currentOverrideOrPanic(win);
-        if (w.data_store.getPtr(key, T)) |v| return v.* else {
+        if (w.data_store.getPtr(w.gpa, key, T)) |v| return v.* else {
             w.data_store.set(w.gpa, key, default) catch |err| {
                 dvui.logError(@src(), err, "data.getDefault key {x}", .{key});
             };

@@ -16,12 +16,14 @@ pub const TextureError = GenericError || error{ TextureCreate, TextureRead, Text
 pub const kind = Implementation.kind;
 
 impl: *Implementation,
-render_impl: if (dvui.render_backend.kind == .default) void else *dvui.render_backend,
+/// Always pointer sized under hot reload, the library is built without a
+/// renderer but shares `Window`'s layout with a host that might have one.
+render_impl: if (dvui.render_backend.kind != .default) *dvui.render_backend else if (dvui.hot_reload.enabled) usize else void,
 
 pub const init = if (dvui.render_backend.kind == .default) initDefault else initRenderer;
 
 fn initDefault(impl: *Implementation) Backend {
-    return .{ .impl = impl, .render_impl = {} };
+    return .{ .impl = impl, .render_impl = if (dvui.hot_reload.enabled) 0 else {} };
 }
 
 fn initRenderer(impl: *Implementation, render_impl: *dvui.render_backend) Backend {

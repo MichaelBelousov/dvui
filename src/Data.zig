@@ -18,6 +18,19 @@ const SavedData = struct {
 
     debug: DebugInfo,
 
+    hot: if (hot_reload) Hot else void = if (hot_reload) .{} else {},
+
+    pub const Encoder = if (hot_reload) ?*const fn (std.mem.Allocator, []const u8) std.mem.Allocator.Error![:0]u8 else void;
+
+    pub const Hot = struct {
+        /// Writes `data` as ZON. Null if the entry wasn't stored through a typed
+        /// function, in which case its bytes are carried over untouched.
+        encode: Encoder = null,
+        /// Non-null when the entry is frozen, and `data` is either empty or, if
+        /// `deinit` is set, the bytes that `deinit` has to run on.
+        zon: ?[:0]u8 = null,
+    };
+
     pub const Kind = enum(u2) {
         /// Store the data pointer to by the slice
         single_item,
@@ -32,7 +45,11 @@ const SavedData = struct {
         kind: Kind,
 
         fn eq(self: DebugInfo, other: DebugInfo) bool {
-            return std.mem.eql(u8, self.name, other.name) and self.kind == other.kind;
+            const same_name = if (hot_reload)
+                dvui.hot_reload.wire.shapeEql(self.name, other.name)
+            else
+                std.mem.eql(u8, self.name, other.name);
+            return same_name and self.kind == other.kind;
         }
 
         pub fn format(self: DebugInfo, writer: *std.Io.Writer) !void {
@@ -41,6 +58,7 @@ const SavedData = struct {
     } else void;
 
     pub fn free(self: *const SavedData, gpa: std.mem.Allocator) void {
+        if (hot_reload) if (self.hot.zon) |zon| gpa.free(zon);
         if (self.deinit) |func| {
             func(self.data.ptr);
         }
@@ -93,7 +111,8 @@ pub fn setSliceCopies(self: *Data, gpa: std.mem.Allocator, key: Key, data: anyty
     if (sentinel) |s| slice[slice.len - 1] = s;
 }
 
-pub fn getPtr(self: *Data, key: Key, comptime T: type) ?*T {
+pub fn getPtr(self: *Data, gpa: std.mem.Allocator, key: Key, comptime T: type) ?*T {
+    self.thaw(gpa, key, T, false);
     return @ptrCast(@alignCast(self.get(key, if (SavedData.DebugInfo == void) {} else .{ .name = @typeName(T), .kind = .single_item })));
 }
 pub fn getPtrDefault(self: *Data, gpa: std.mem.Allocator, key: Key, comptime T: type, default: T) std.mem.Allocator.Error!*T {
@@ -102,7 +121,8 @@ pub fn getPtrDefault(self: *Data, gpa: std.mem.Allocator, key: Key, comptime T: 
     return value;
 }
 
-pub fn getSlice(self: *Data, key: Key, comptime S: type) ?Slice(S) {
+pub fn getSlice(self: *Data, gpa: std.mem.Allocator, key: Key, comptime S: type) ?Slice(S) {
+    self.thaw(gpa, key, S, true);
     const bytes = self.get(key, if (SavedData.DebugInfo == void) {} else .{
         .name = @typeName(@typeInfo(S).pointer.child),
         .kind = if (@typeInfo(S).pointer.sentinel() == null) .slice else .slice_with_sentinel,
@@ -127,6 +147,7 @@ pub fn getSliceDefault(self: *Data, gpa: std.mem.Allocator, key: Key, comptime S
 }
 
 fn getOrPutT(self: *Data, gpa: std.mem.Allocator, key: Key, comptime T: type) std.mem.Allocator.Error!struct { *T, bool } {
+    self.thaw(gpa, key, T, false);
     const bytes, const existing = try self.getOrPut(
         gpa,
         key,
@@ -134,10 +155,12 @@ fn getOrPutT(self: *Data, gpa: std.mem.Allocator, key: Key, comptime T: type) st
         @alignOf(T),
         true,
         if (SavedData.DebugInfo == void) {} else .{ .name = @typeName(T), .kind = .single_item },
+        if (hot_reload) &encodeSingle(T) else {},
     );
     return .{ @ptrCast(@alignCast(bytes)), existing };
 }
 fn getOrPutSliceT(self: *Data, gpa: std.mem.Allocator, key: Key, comptime S: type, len: usize, replace_existing: bool) std.mem.Allocator.Error!struct { S, bool } {
+    self.thaw(gpa, key, S, true);
     const st = @typeInfo(S);
     const T = st.pointer.child;
     const bytes, const existing = try self.getOrPut(
@@ -150,12 +173,13 @@ fn getOrPutSliceT(self: *Data, gpa: std.mem.Allocator, key: Key, comptime S: typ
             .name = @typeName(T),
             .kind = if (@typeInfo(S).pointer.sentinel() == null) .slice else .slice_with_sentinel,
         },
+        if (hot_reload) &encodeSliceBytes(S) else {},
     );
     return .{ @ptrCast(@alignCast(bytes)), existing };
 }
 
 /// Returns the backing byte slice and a boolean indicating if we found an existing entry
-pub fn getOrPut(self: *Data, gpa: std.mem.Allocator, key: Key, len: usize, alignment: u8, replace_existing: bool, debug: SavedData.DebugInfo) std.mem.Allocator.Error!struct { []u8, bool } {
+pub fn getOrPut(self: *Data, gpa: std.mem.Allocator, key: Key, len: usize, alignment: u8, replace_existing: bool, debug: SavedData.DebugInfo, encode: SavedData.Encoder) std.mem.Allocator.Error!struct { []u8, bool } {
     const io = dvui.io;
     self.mutex.lockUncancelable(io);
     defer self.mutex.unlock(io);
@@ -181,6 +205,7 @@ pub fn getOrPut(self: *Data, gpa: std.mem.Allocator, key: Key, len: usize, align
             .debug = debug,
         };
     }
+    if (hot_reload) entry.value_ptr.hot.encode = encode;
     return .{ entry.value_ptr.data, entry.found_existing };
 }
 
@@ -292,6 +317,149 @@ pub fn deinit(self: *Data, gpa: std.mem.Allocator) void {
     self.trash.deinit(gpa);
 }
 
+/// Write every entry to its ZON wire format, right before the code that stored
+/// them goes away. Entries stay frozen until the next typed access, which brings
+/// them back as whatever type the new code asks for.
+///
+/// Must be called on the gui thread, with no pointers to stored data in use
+/// after the next `Window.end`.
+pub fn freeze(self: *Data, gpa: std.mem.Allocator) void {
+    if (!hot_reload) return;
+    const io = dvui.io;
+    self.mutex.lockUncancelable(io);
+    defer self.mutex.unlock(io);
+
+    var it = self.storage.iterator();
+    while (it.next()) |entry| {
+        const sd = entry.value_ptr;
+        if (sd.hot.zon != null) continue;
+        const encode = sd.hot.encode orelse continue;
+        self.trash.ensureUnusedCapacity(gpa, 1) catch |err| {
+            dvui.logError(@src(), err, "data with key {x} can't be frozen for hot reload", .{entry.key_ptr.*});
+            continue;
+        };
+        sd.hot.zon = encode(gpa, sd.data) catch |err| {
+            dvui.logError(@src(), err, "data with key {x} can't be frozen for hot reload", .{entry.key_ptr.*});
+            continue;
+        };
+        if (sd.deinit == null) {
+            // like a replaced value, pointers from earlier this frame stay valid until `reset`
+            var old = sd.*;
+            old.hot = .{};
+            self.trash.appendAssumeCapacity(old);
+            sd.data = &.{};
+        }
+    }
+}
+
+fn encodeSingle(comptime T: type) fn (std.mem.Allocator, []const u8) std.mem.Allocator.Error![:0]u8 {
+    return struct {
+        fn encode(gpa: std.mem.Allocator, bytes: []const u8) std.mem.Allocator.Error![:0]u8 {
+            const value: *const T = if (@sizeOf(T) == 0) &undefined_value else @ptrCast(@alignCast(bytes.ptr));
+            return dvui.hot_reload.wire.encode(gpa, T, value);
+        }
+        const undefined_value: T = undefined;
+    }.encode;
+}
+
+fn encodeSliceBytes(comptime S: type) fn (std.mem.Allocator, []const u8) std.mem.Allocator.Error![:0]u8 {
+    return struct {
+        fn encode(gpa: std.mem.Allocator, bytes: []const u8) std.mem.Allocator.Error![:0]u8 {
+            const T = @typeInfo(S).pointer.child;
+            const has_sentinel = @typeInfo(S).pointer.sentinel() != null;
+            if (@sizeOf(T) == 0) return dvui.hot_reload.wire.encodeSlice(gpa, T, &.{});
+            const items: []const T = @ptrCast(@alignCast(bytes));
+            return dvui.hot_reload.wire.encodeSlice(gpa, T, items[0 .. items.len - @intFromBool(has_sentinel)]);
+        }
+    }.encode;
+}
+
+/// Bring back a frozen entry for the new code's type, if there is one. `T` is
+/// the slice type when `is_slice`.
+///
+/// The entry is removed if `T` is an unrelated type, so that callers see it as
+/// missing and apply their usual default.
+fn thaw(self: *Data, gpa: std.mem.Allocator, key: Key, comptime T: type, comptime is_slice: bool) void {
+    if (!hot_reload) return;
+    const io = dvui.io;
+    self.mutex.lockUncancelable(io);
+    defer self.mutex.unlock(io);
+
+    const sd = self.storage.getPtr(key) orelse return;
+    const zon = sd.hot.zon orelse return;
+
+    const Item = if (is_slice) @typeInfo(T).pointer.child else T;
+    const sentinel = if (is_slice) @typeInfo(T).pointer.sentinel() else null;
+    const alignment: u8 = if (is_slice) @typeInfo(T).pointer.attrs.@"align" orelse @alignOf(Item) else @alignOf(T);
+    const encode: SavedData.Encoder = if (is_slice) &encodeSliceBytes(T) else &encodeSingle(T);
+
+    const new_data = decode(gpa, zon, Item, is_slice, sentinel, alignment) catch |err| {
+        dvui.logError(@src(), err, "data with key {x} failed to thaw after hot reload", .{key});
+        return self.dropFrozen(gpa, key);
+    } orelse return self.dropFrozen(gpa, key);
+
+    if (sd.deinit != null) {
+        // The deinit function only understands the type it was set for, so it
+        // can only stay if the type is unchanged.
+        const unchanged = if (encode.?(gpa, new_data)) |zon_again| blk: {
+            defer gpa.free(zon_again);
+            break :blk std.mem.eql(u8, zon, zon_again);
+        } else |_| false;
+        if (!unchanged) {
+            if (new_data.len != 0) gpa.rawFree(new_data, .fromByteUnits(alignment), @returnAddress());
+            return self.dropFrozen(gpa, key);
+        }
+        if (sd.data.len != 0) gpa.rawFree(sd.data, .fromByteUnits(sd.alignment), @returnAddress());
+    }
+
+    gpa.free(zon);
+    sd.hot = .{ .encode = encode };
+    sd.data = new_data;
+    sd.alignment = alignment;
+    if (SavedData.DebugInfo != void) {
+        sd.debug = if (is_slice)
+            .{ .name = @typeName(Item), .kind = if (sentinel == null) .slice else .slice_with_sentinel }
+        else
+            .{ .name = @typeName(T), .kind = .single_item };
+    }
+}
+
+/// Returns the native bytes for frozen `zon`, or null if it isn't compatible.
+fn decode(gpa: std.mem.Allocator, zon: [:0]const u8, comptime Item: type, comptime is_slice: bool, comptime sentinel: ?Item, alignment: u8) std.mem.Allocator.Error!?[]u8 {
+    const wire = dvui.hot_reload.wire;
+    var parsed: wire.Parsed = try .init(gpa, zon);
+    defer parsed.deinit(gpa);
+
+    const count = (if (is_slice) parsed.sliceLen(Item) else if (parsed.value(Item) != null) @as(usize, 1) else null) orelse return null;
+    const total = count + @intFromBool(sentinel != null);
+    const len = @sizeOf(Item) * total;
+    const bytes: []u8 = if (len == 0)
+        &.{}
+    else if (gpa.rawAlloc(len, .fromByteUnits(alignment), @returnAddress())) |ptr|
+        ptr[0..len]
+    else
+        return error.OutOfMemory;
+    if (@sizeOf(Item) == 0) return bytes;
+
+    const items: []Item = @ptrCast(@alignCast(bytes));
+    if (is_slice) {
+        parsed.sliceInto(Item, items[0..count]);
+        if (sentinel) |s| items[count] = s;
+    } else {
+        items[0] = parsed.value(Item).?;
+    }
+    return bytes;
+}
+
+fn dropFrozen(self: *Data, gpa: std.mem.Allocator, key: Key) void {
+    const kv = self.storage.fetchRemove(key) orelse return;
+    self.trash.append(gpa, kv.value) catch |err| {
+        dvui.logError(@src(), err, "data with key {x} failed to call deinit function", .{key});
+    };
+}
+
+const hot_reload = dvui.hot_reload.enabled;
+
 const std = @import("std");
 const Io = std.Io;
 const builtin = @import("builtin");
@@ -299,4 +467,116 @@ const dvui = @import("./dvui.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());
+}
+
+test "freeze and thaw across type changes" {
+    if (!hot_reload) return error.SkipZigTest;
+    var t = try dvui.testing.init(.{});
+    defer t.deinit();
+    const win = dvui.currentWindow();
+    const data = &win.data_store;
+    const gpa = win.gpa;
+
+    const key: Key = .U64(1);
+    const Old = struct { a: u32, removed: u8, retyped: u32 };
+    const New = struct { a: u32, added: f32 = 3, retyped: i32 };
+    try data.set(gpa, key, Old{ .a = 5, .removed = 1, .retyped = 2 });
+
+    data.freeze(gpa);
+    try std.testing.expect(data.storage.getPtr(key).?.hot.zon != null);
+    // a second freeze with no access in between leaves the entry alone
+    data.freeze(gpa);
+
+    try std.testing.expectEqual(New{ .a = 5, .added = 0, .retyped = 0 }, data.getPtr(gpa, key, New).?.*);
+    try std.testing.expect(data.storage.getPtr(key).?.hot.zon == null);
+
+    // stays writable through the returned pointer, and those writes are what get frozen next
+    data.getPtr(gpa, key, New).?.a = 6;
+    data.freeze(gpa);
+    try std.testing.expectEqual(6, data.getPtr(gpa, key, New).?.a);
+}
+
+test "frozen entries of an unrelated type are missing" {
+    if (!hot_reload) return error.SkipZigTest;
+    var t = try dvui.testing.init(.{});
+    defer t.deinit();
+    const win = dvui.currentWindow();
+    const data = &win.data_store;
+    const gpa = win.gpa;
+
+    const key: Key = .U64(1);
+    try data.set(gpa, key, @as(u32, 1));
+    data.freeze(gpa);
+    try std.testing.expectEqual(null, data.getPtr(gpa, key, f32));
+
+    try data.set(gpa, key, @as(u32, 1));
+    data.freeze(gpa);
+    try std.testing.expectEqual(4.5, (try data.getPtrDefault(gpa, key, f32, 4.5)).*);
+}
+
+test "set replaces frozen entries" {
+    if (!hot_reload) return error.SkipZigTest;
+    var t = try dvui.testing.init(.{});
+    defer t.deinit();
+    const win = dvui.currentWindow();
+    const data = &win.data_store;
+    const gpa = win.gpa;
+
+    const key: Key = .U64(1);
+    try data.set(gpa, key, @as(u32, 1));
+    data.freeze(gpa);
+    try data.set(gpa, key, @as(f32, 2));
+    try std.testing.expectEqual(2, data.getPtr(gpa, key, f32).?.*);
+}
+
+test "freeze and thaw slices" {
+    if (!hot_reload) return error.SkipZigTest;
+    var t = try dvui.testing.init(.{});
+    defer t.deinit();
+    const win = dvui.currentWindow();
+    const data = &win.data_store;
+    const gpa = win.gpa;
+
+    try data.setSlice(gpa, .U64(1), @as([]const u8, "ab"));
+    try data.setSlice(gpa, .U64(2), "cd");
+    try data.setSlice(gpa, .U64(3), @as([]const u16, &.{ 1, 2, 3 }));
+    data.freeze(gpa);
+    try std.testing.expectEqualSlices(u8, "ab", data.getSlice(gpa, .U64(1), []u8).?);
+    try std.testing.expectEqualSentinel(u8, 0, "cd", data.getSlice(gpa, .U64(2), [:0]u8).?);
+    try std.testing.expectEqualSlices(u16, &.{ 1, 2, 3 }, data.getSlice(gpa, .U64(3), []u16).?);
+
+    // element type changes
+    data.freeze(gpa);
+    try std.testing.expectEqual(null, data.getSlice(gpa, .U64(3), []u8));
+}
+
+test "deinit function stays for an unchanged type and runs for a changed one" {
+    if (!hot_reload) return error.SkipZigTest;
+    var t = try dvui.testing.init(.{});
+    defer t.deinit();
+    const win = dvui.currentWindow();
+    const data = &win.data_store;
+    const gpa = win.gpa;
+
+    const S = struct {
+        var last_deinit: u32 = 0;
+        a: u32,
+        fn deinit(ptr: *anyopaque) void {
+            last_deinit = @as(*@This(), @ptrCast(@alignCast(ptr))).a;
+        }
+    };
+
+    const key: Key = .U64(1);
+    try data.set(gpa, key, S{ .a = 7 });
+    data.setDeinitFunction(key, &S.deinit);
+
+    data.freeze(gpa);
+    try std.testing.expectEqual(7, data.getPtr(gpa, key, S).?.a);
+    try std.testing.expectEqual(0, S.last_deinit);
+    try std.testing.expect(data.storage.getPtr(key).?.deinit != null);
+
+    data.freeze(gpa);
+    try std.testing.expectEqual(null, data.getPtr(gpa, key, struct { a: u32, b: u32 }));
+    data.reset(gpa);
+    try std.testing.expectEqual(7, S.last_deinit);
 }
